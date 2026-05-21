@@ -1,6 +1,7 @@
 # AWS EC2 Infrastructure Observability Stack with Prometheus & Grafana
 
 ## Overview
+
 This project sets up a production-grade observability platform for AWS EC2 instances using Prometheus for metrics collection and Grafana for visualization. Metrics are gathered from multiple target servers via Node Exporter, centralized on a dedicated monitoring node, and surfaced through live dashboards with automated threshold-based alerting.
 
 ## System Architecture
@@ -8,6 +9,7 @@ This project sets up a production-grade observability platform for AWS EC2 insta
 ![Architecture Overview](screenshots/architecture-overview.png)
 
 ### Core Components
+
 1. **Central Monitoring Node** — Dedicated server hosting Prometheus and Grafana
 2. **Target Application Nodes** (2x) — Workload servers instrumented with Node Exporter
 3. **Prometheus** — Time-series metrics scraping, storage, and rule evaluation
@@ -15,16 +17,15 @@ This project sets up a production-grade observability platform for AWS EC2 insta
 5. **Node Exporter** — Exposes host-level system metrics over HTTP
 
 ### Data Flow
-```
-Target Nodes (Node Exporter) → Prometheus (Scrape & Store) → Grafana (Visualize)
- ↓
- Alerting Rules
-```
+
+Target Nodes run Node Exporter, which exposes system metrics. Prometheus scrapes those metrics on a 15-second interval and evaluates alerting rules. Grafana reads from Prometheus and renders live dashboards. When a rule threshold is breached, an alert transitions from Inactive to Pending to Firing.
 
 ## Goal
+
 As an SRE, the aim was to build automated, real-time infrastructure visibility — replacing ad-hoc SSH-based checks for CPU, memory, and disk with a centralized alerting and dashboard solution that catches issues before they cause outages.
 
 ## Requirements
+
 - Active AWS account with EC2 permissions
 - SSH key pair for instance access
 - Familiarity with Linux CLI
@@ -32,290 +33,152 @@ As an SRE, the aim was to build automated, real-time infrastructure visibility �
 
 ## Setup Guide
 
+All shell commands, configuration files, and YAML snippets referenced in this guide are available in `commands.md` at the root of this repository.
+
 ### Step 1: Provision EC2 Instances
 
 #### Central Monitoring Node
+
 1. Log into AWS Console → EC2 → Launch Instance
-2. **Settings**:
- - **Name**: Central-Monitor
- - **AMI**: Ubuntu 22.04 LTS (ami-07216ac99dc46a187)
- - **Instance Type**: t2.medium
- - **Key Pair**: Use existing SSH key
- - **Security Group**: Open the following ports:
- - 22 (SSH)
- - 9090 (Prometheus UI)
- - 3000 (Grafana UI)
+2. Configure the instance with the following settings:
+   - **Name**: Central-Monitor
+   - **AMI**: Ubuntu 22.04 LTS (ami-07216ac99dc46a187)
+   - **Instance Type**: t2.medium
+   - **Key Pair**: Use existing SSH key
+   - **Security Group**: Open ports 22 (SSH), 9090 (Prometheus), and 3000 (Grafana)
 3. Launch the instance
 
 #### Target Application Nodes
-Repeat the above steps twice to create Node-1 and Node-2:
+
+Repeat the above steps twice to create Node-1 and Node-2 with the following settings:
+
 - **Instance Type**: t2.medium
 - **AMI**: Ubuntu 22.04 LTS
-- **Security Group**: Open the following ports:
- - 22 (SSH)
- - 9100 (Node Exporter metrics endpoint)
+- **Security Group**: Open ports 22 (SSH) and 9100 (Node Exporter)
 
 ### Step 2: Deploy Prometheus and Grafana on the Monitoring Node
 
-```bash
-# Connect to the monitoring node
-ssh -i your-key.pem ubuntu@<monitor-node-ip>
-
-# Refresh package lists and install wget
-sudo apt-get update -y
-sudo apt-get install -y wget
-
-# Fetch and install Prometheus
-cd /tmp
-wget https://github.com/prometheus/prometheus/releases/download/v2.48.0/prometheus-2.48.0.linux-amd64.tar.gz
-tar xvfz prometheus-2.48.0.linux-amd64.tar.gz
-sudo mv prometheus-2.48.0.linux-amd64 /opt/prometheus
-
-# Register Prometheus as a systemd service
-sudo tee /etc/systemd/system/prometheus.service > /dev/null <<EOF
-[Unit]
-Description=Prometheus Metrics Server
-After=network.target
-
-[Service]
-User=root
-ExecStart=/opt/prometheus/prometheus --config.file=/opt/prometheus/prometheus.yml --storage.tsdb.path=/opt/prometheus/data
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start Prometheus
-sudo systemctl daemon-reload
-sudo systemctl start prometheus
-sudo systemctl enable prometheus
-
-# Add Grafana repository and install
-sudo mkdir -p /etc/apt/keyrings/
-wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null
-echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
-sudo apt-get update -y
-sudo apt-get install -y grafana
-
-# Enable and start Grafana
-sudo systemctl start grafana-server
-sudo systemctl enable grafana-server
-```
+SSH into the Central-Monitor instance. Update the package list, download Prometheus v2.48.0, extract it to `/opt/prometheus`, and register it as a systemd service so it starts automatically on boot. Then add the Grafana APT repository, install Grafana, and enable its service. Full commands are in `commands.md` under the "Prometheus and Grafana Installation" section.
 
 ### Step 3: Deploy Node Exporter on Target Nodes
 
-```bash
-# Connect to each application node
-ssh -i your-key.pem ubuntu@<app-node-ip>
-
-# Download and install Node Exporter
-cd /tmp
-wget https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
-tar xvfz node_exporter-1.7.0.linux-amd64.tar.gz
-sudo mv node_exporter-1.7.0.linux-amd64/node_exporter /usr/local/bin/
-
-# Register Node Exporter as a systemd service
-sudo tee /etc/systemd/system/node_exporter.service > /dev/null <<EOF
-[Unit]
-Description=Node Exporter - System Metrics Agent
-After=network.target
-
-[Service]
-User=root
-ExecStart=/usr/local/bin/node_exporter
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start Node Exporter
-sudo systemctl daemon-reload
-sudo systemctl start node_exporter
-sudo systemctl enable node_exporter
-```
+SSH into each of the two application nodes. Download Node Exporter v1.7.0, move the binary to `/usr/local/bin/`, and register it as a systemd service. Full commands are in `commands.md` under the "Node Exporter Installation" section.
 
 ### Step 4: Configure Prometheus Scrape Targets
 
-Edit the Prometheus config at `/opt/prometheus/prometheus.yml`:
+Edit `/opt/prometheus/prometheus.yml` on the monitoring node to define the global scrape interval (15s), point to the alerting rules file, and add both application nodes as scrape targets on port 9100. The complete configuration block is in `commands.md` under "Prometheus Configuration".
 
-```yaml
-global:
- scrape_interval: 15s
- evaluation_interval: 15s
 
-alerting:
- alertmanagers:
- - static_configs:
- - targets: []
-
-rule_files:
- - "alerting_rules.yml"
-
-scrape_configs:
- - job_name: 'prometheus'
- static_configs:
- - targets: ['localhost:9090']
-
- - job_name: 'node_exporter'
- static_configs:
- - targets:
- - '<app-node-1-ip>:9100'
- - '<app-node-2-ip>:9100'
-```
-
-![Prometheus Config](screenshots/prometheus-config-view.png)
 
 ### Step 5: Define Alerting Rules
 
-Create `/opt/prometheus/alerting_rules.yml`:
+Create `/opt/prometheus/alerting_rules.yml` with three rules under the `infrastructure_alerts` group. Each rule uses a 2-minute `for` duration to avoid false positives from transient spikes. The thresholds are CPU above 70%, memory above 80%, and disk above 80%. Full YAML is in `commands.md` under "Alerting Rules".
 
-```yaml
-groups:
- - name: infrastructure_alerts
- interval: 30s
- rules:
- - alert: CPUUsageHigh
- expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 70
- for: 2m
- labels:
- severity: warning
- annotations:
- summary: "CPU usage has exceeded the 70% threshold"
 
- - alert: MemoryUsageHigh
- expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
- for: 2m
- labels:
- severity: warning
 
- - alert: DiskUsageHigh
- expr: (1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100 > 80
- for: 2m
- labels:
- severity: warning
-```
-
-![Alert Rules Config](screenshots/alerting-rules-view.png)
-
-Apply changes by restarting Prometheus:
-```bash
-sudo systemctl restart prometheus
-```
+Restart Prometheus after saving the file to apply the new rules.
 
 ### Step 6: Set Up Grafana Dashboards
 
-1. Open Grafana at `http://<monitor-node-ip>:3000`
-2. Log in using default credentials: `admin` / `admin`
-3. Connect Prometheus as a data source:
- - Navigate to Connections → Data Sources → Add New → Prometheus
- - Set URL to `http://localhost:9090`
- - Save and test the connection
-
-4. Import the Node Exporter Full dashboard:
- - Go to Dashboards → Import
- - Enter Dashboard ID: `1860`
- - Select the Prometheus data source
- - Click Import
+1. Open Grafana at `http://<monitor-node-ip>:3000` and log in with the default credentials (admin / admin).
+2. Navigate to Connections → Data Sources → Add New → Prometheus. Set the URL to `http://localhost:9090` and save.
+3. Go to Dashboards → Import, enter Dashboard ID `1860` (Node Exporter Full), select the Prometheus data source, and click Import.
 
 ## Dashboard Screenshots
 
 ### Scrape Targets Status
+
 All configured targets are being scraped with an UP status:
 
-![Target Status](screenshots/targets-status.png)
+
 
 ### Active Alert Rules
+
 Configured alerting rules are loaded and actively evaluating:
 
-![Alert Rules Overview](screenshots/alert-rules-overview.png)
+
 
 ### Grafana Live Dashboard
+
 The imported dashboard showing real-time system metrics:
 
-![Live Dashboard](screenshots/grafana-live-dashboard.png)
+
 
 ## Alert Validation
 
 ### Simulating a CPU Spike
 
-To validate the CPU alert, SSH into a target node and trigger artificial load:
-
-```bash
-# Connect to a target node
-ssh -i your-key.pem ubuntu@<app-node-ip>
-
-# Install the stress utility
-sudo apt-get update
-sudo apt-get install -y stress
-
-# Simulate 70%+ CPU load for 5 minutes
-stress --cpu 4 --timeout 300s
-```
+To validate the CPU alert, SSH into a target node, install the `stress` utility, and run it with 4 CPU workers for 300 seconds. This pushes CPU usage above the 70% threshold. Commands are in `commands.md` under "Alert Testing".
 
 The alert fired successfully after 2 minutes of sustained load:
 
-![Alert Triggered](screenshots/alert-triggered.png)
 
 ### Alert Lifecycle Observed
+
 1. Opened Prometheus at `http://<monitor-ip>:9090/alerts`
-2. Monitored the state transitions: **Inactive → Pending → Firing**
-3. Alert activated once CPU crossed the 70% threshold for 2+ minutes
+2. Monitored the state transitions: Inactive → Pending → Firing
+3. Alert activated once CPU crossed the 70% threshold for 2 or more minutes
 4. Alert self-resolved after the stress process terminated
 
 ## Metrics Coverage
 
 ### CPU
+
 - Per-core utilization
 - Idle time ratio
 - User and kernel-mode time
 
 ### Memory
+
 - Total and available RAM
 - Utilization percentage
 - Buffer and cache breakdown
 
 ### Disk
+
 - Space used vs. available per mount
 - Usage percentage
 - Read/write I/O rates
 
 ### Network
+
 - Inbound and outbound throughput
 - Packet counts
 - Error and drop rates
 
 ### System
+
 - Load averages (1m, 5m, 15m)
 - Uptime
 - Active process count
 
 ## Technology Stack
 
-| Component | Version |
-|-----------|---------|
-| AWS EC2 | — |
-| Ubuntu | 22.04 LTS |
-| Prometheus | v2.48.0 |
-| Grafana | Latest stable |
-| Node Exporter | v1.7.0 |
-| Systemd | Built-in |
+| Component     | Version        |
+|---------------|----------------|
+| AWS EC2       | —              |
+| Ubuntu        | 22.04 LTS      |
+| Prometheus    | v2.48.0        |
+| Grafana       | Latest stable  |
+| Node Exporter | v1.7.0         |
+| Systemd       | Built-in       |
 
 ## Repository Layout
 
 ```
 .
- config/
- prometheus.yml # Prometheus scrape + alertmanager config
- alerting_rules.yml # Threshold-based alerting rules
- screenshots/
- targets-status.png # Prometheus targets page
- alert-rules-overview.png # Prometheus alerts page
- grafana-live-dashboard.png # Grafana dashboard view
- alert-triggered.png # Alert in firing state
- prometheus-config-view.png # Config file screenshot
- alerting-rules-view.png # Alert rules screenshot
- README.md # Project documentation
+├── config/
+│   ├── prometheus.yml          # Prometheus scrape and alertmanager config
+│   └── alerting_rules.yml      # Threshold-based alerting rules
+├── screenshots/
+│   ├── targets-status.png
+│   ├── alert-rules-overview.png
+│   ├── grafana-live-dashboard.png
+│   ├── alert-triggered.png
+│   ├── prometheus-config-view.png
+│   └── alerting-rules-view.png
+├── commands.md                 # All shell commands and config file contents
+└── README.md                   # Project documentation
 ```
 
 ## Deliverables
@@ -329,55 +192,27 @@ The alert fired successfully after 2 minutes of sustained load:
 ## Troubleshooting Reference
 
 ### Prometheus Not Collecting Metrics
-```bash
-# Tail Prometheus logs
-sudo journalctl -u prometheus -f
 
-# Validate YAML syntax
-sudo nano /opt/prometheus/prometheus.yml
-
-# Restart the service
-sudo systemctl restart prometheus
-```
+Check the Prometheus service logs using `journalctl`, validate the YAML configuration file syntax, and restart the service. Commands are in `commands.md` under "Troubleshooting".
 
 ### Node Exporter Offline
-```bash
-# Check service health
-sudo systemctl status node_exporter
 
-# Review recent logs
-sudo journalctl -u node_exporter -n 50
-
-# Force restart
-sudo systemctl restart node_exporter
-```
+Check the Node Exporter service status, review the last 50 log lines, and restart the service if needed. Commands are in `commands.md` under "Troubleshooting".
 
 ### Grafana Not Rendering Dashboards
-```bash
-# Verify Grafana is running
-sudo systemctl status grafana-server
 
-# Follow live logs
-sudo journalctl -u grafana-server -f
-
-# Restart the server
-sudo systemctl restart grafana-server
-```
+Verify the Grafana server is running, follow the live logs for errors, and restart the service. Commands are in `commands.md` under "Troubleshooting".
 
 ## Security Notes
 
 ### Security Group Rules
 
-**Monitoring Node:**
-- Port 22: Restricted to known IP ranges
-- Port 9090: Accessible for Prometheus UI
-- Port 3000: Accessible for Grafana UI
+**Monitoring Node:** Port 22 restricted to known IP ranges. Ports 9090 and 3000 open for Prometheus and Grafana access respectively.
 
-**Target Nodes:**
-- Port 22: Restricted to known IP ranges
-- Port 9100: Open for Prometheus scraping
+**Target Nodes:** Port 22 restricted to known IP ranges. Port 9100 open for Prometheus scraping.
 
 ### Hardening Practices Applied
+
 - SSH key-based authentication enforced
 - Minimal port exposure via security group rules
 - Regular OS patching applied
@@ -402,34 +237,25 @@ sudo systemctl restart grafana-server
 
 ## Access URLs
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Prometheus | `http://<monitor-node-ip>:9090` | N/A |
-| Grafana | `http://<monitor-node-ip>:3000` | admin / admin (change on first login) |
+| Service    | URL                                  | Credentials                          |
+|------------|--------------------------------------|--------------------------------------|
+| Prometheus | `http://<monitor-node-ip>:9090`      | N/A                                  |
+| Grafana    | `http://<monitor-node-ip>:3000`      | admin / admin (change on first login)|
 
 ## Teardown
 
 To decommission all resources:
+
 1. Terminate all EC2 instances from the AWS Console
 2. Delete associated security groups
 3. Remove orphaned EBS volumes if present
 4. Release any allocated Elastic IPs
 
-## Reference Links
 
-- [Prometheus Docs](https://prometheus.io/docs/)
-- [Grafana Docs](https://grafana.com/docs/)
-- [Node Exporter GitHub](https://github.com/prometheus/node_exporter)
-- [PromQL Query Examples](https://prometheus.io/docs/prometheus/latest/querying/examples/)
 
 ## Outcome
 
-A fully operational observability stack delivering:
-- Real-time monitoring across multiple EC2 nodes
-- Visual dashboards for CPU, memory, disk, and network metrics
-- Automated threshold alerting with lifecycle management
-- Proactive incident detection ahead of user-facing impact
-- Elimination of manual SSH-based health checks
+A fully operational observability stack delivering real-time monitoring across multiple EC2 nodes, visual dashboards for CPU, memory, disk, and network metrics, automated threshold alerting with lifecycle management, proactive incident detection ahead of user-facing impact, and elimination of manual SSH-based health checks.
 
 ---
 
