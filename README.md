@@ -6,7 +6,7 @@ This project sets up a production-grade observability platform for AWS EC2 insta
 
 ## System Architecture
 
-![Architecture Overview](screenshots/architecture-overview.png)
+![Architecture Overview](./work.png)
 
 ### Core Components
 
