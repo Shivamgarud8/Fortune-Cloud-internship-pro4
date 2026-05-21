@@ -1,6 +1,6 @@
 # AWS EC2 Infrastructure Observability Stack with Prometheus & Grafana
 
-## Overview
+## Overview.
 
 This project sets up a production-grade observability platform for AWS EC2 instances using Prometheus for metrics collection and Grafana for visualization. Metrics are gathered from multiple target servers via Node Exporter, centralized on a dedicated monitoring node, and surfaced through live dashboards with automated threshold-based alerting.
 
